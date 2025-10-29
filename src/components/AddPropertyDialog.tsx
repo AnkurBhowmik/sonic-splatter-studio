@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { z } from "zod";
+import { useDropzone } from "react-dropzone";
+import { Upload, X } from "lucide-react";
 
 const propertySchema = z.object({
   title: z.string().trim().min(3, "Title must be at least 3 characters").max(200),
@@ -27,6 +29,8 @@ interface AddPropertyDialogProps {
 
 const AddPropertyDialog = ({ open, onOpenChange, onSuccess }: AddPropertyDialogProps) => {
   const [isLoading, setIsLoading] = useState(false);
+  const [uploadedImage, setUploadedImage] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string>("");
   const [formData, setFormData] = useState({
     title: "",
     location: "",
@@ -37,6 +41,27 @@ const AddPropertyDialog = ({ open, onOpenChange, onSuccess }: AddPropertyDialogP
     type: "",
     imageUrl: "",
   });
+
+  const onDrop = useCallback((acceptedFiles: File[]) => {
+    const file = acceptedFiles[0];
+    if (file) {
+      setUploadedImage(file);
+      setImagePreview(URL.createObjectURL(file));
+      setFormData({ ...formData, imageUrl: "" });
+    }
+  }, [formData]);
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: { 'image/*': ['.png', '.jpg', '.jpeg', '.webp'] },
+    maxFiles: 1,
+    maxSize: 5242880, // 5MB
+  });
+
+  const removeImage = () => {
+    setUploadedImage(null);
+    setImagePreview("");
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,6 +86,27 @@ const AddPropertyDialog = ({ open, onOpenChange, onSuccess }: AddPropertyDialogP
         return;
       }
 
+      let imageUrl = validated.imageUrl || null;
+
+      // Upload image if user selected one
+      if (uploadedImage) {
+        const fileExt = uploadedImage.name.split('.').pop();
+        const fileName = `${user.id}-${Date.now()}.${fileExt}`;
+        const filePath = `${fileName}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('property-images')
+          .upload(filePath, uploadedImage);
+
+        if (uploadError) throw uploadError;
+
+        const { data: { publicUrl } } = supabase.storage
+          .from('property-images')
+          .getPublicUrl(filePath);
+
+        imageUrl = publicUrl;
+      }
+
       const { error } = await supabase.from("properties").insert({
         user_id: user.id,
         title: validated.title,
@@ -70,7 +116,7 @@ const AddPropertyDialog = ({ open, onOpenChange, onSuccess }: AddPropertyDialogP
         baths: validated.baths,
         sqft: validated.sqft,
         type: validated.type,
-        image_url: validated.imageUrl || null,
+        image_url: imageUrl,
       });
 
       if (error) throw error;
@@ -86,6 +132,8 @@ const AddPropertyDialog = ({ open, onOpenChange, onSuccess }: AddPropertyDialogP
         type: "",
         imageUrl: "",
       });
+      setUploadedImage(null);
+      setImagePreview("");
       onOpenChange(false);
       onSuccess();
     } catch (error) {
@@ -205,16 +253,58 @@ const AddPropertyDialog = ({ open, onOpenChange, onSuccess }: AddPropertyDialogP
               />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="imageUrl">Image URL (optional)</Label>
-              <Input
-                id="imageUrl"
-                type="url"
-                value={formData.imageUrl}
-                onChange={(e) => setFormData({ ...formData, imageUrl: e.target.value })}
-                placeholder="https://example.com/image.jpg"
-                maxLength={2000}
-              />
+            <div className="space-y-2 md:col-span-2">
+              <Label>Property Image</Label>
+              {!imagePreview && !formData.imageUrl ? (
+                <div
+                  {...getRootProps()}
+                  className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
+                    isDragActive ? 'border-primary bg-primary/5' : 'border-border hover:border-primary'
+                  }`}
+                >
+                  <input {...getInputProps()} />
+                  <Upload className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground">
+                    {isDragActive ? 'Drop image here' : 'Drag & drop an image, or click to select'}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-2">Max size: 5MB</p>
+                </div>
+              ) : (
+                <div className="relative">
+                  <img
+                    src={imagePreview || formData.imageUrl}
+                    alt="Preview"
+                    className="w-full h-48 object-cover rounded-lg"
+                  />
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="destructive"
+                    className="absolute top-2 right-2"
+                    onClick={removeImage}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
+              <div className="mt-2">
+                <Label htmlFor="imageUrl" className="text-xs text-muted-foreground">Or paste an image URL</Label>
+                <Input
+                  id="imageUrl"
+                  type="url"
+                  value={formData.imageUrl}
+                  onChange={(e) => {
+                    setFormData({ ...formData, imageUrl: e.target.value });
+                    if (e.target.value) {
+                      setUploadedImage(null);
+                      setImagePreview("");
+                    }
+                  }}
+                  placeholder="https://example.com/image.jpg"
+                  maxLength={2000}
+                  disabled={!!uploadedImage}
+                />
+              </div>
             </div>
           </div>
 

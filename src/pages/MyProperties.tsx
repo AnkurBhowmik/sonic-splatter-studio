@@ -128,6 +128,7 @@ const MyProperties = () => {
             {properties.map((property) => (
               <div key={property.id} className="relative">
                 <PropertyCard
+                  id={property.id}
                   image={property.image_url || "/placeholder.svg"}
                   title={property.title}
                   location={property.location}
@@ -142,7 +143,10 @@ const MyProperties = () => {
                   variant="destructive"
                   size="sm"
                   className="absolute top-4 right-16"
-                  onClick={() => handleDelete(property.id)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDelete(property.id);
+                  }}
                 >
                   Delete
                 </Button>

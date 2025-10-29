@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import Header from "@/components/Header";
 import Hero from "@/components/Hero";
 import PropertyCard from "@/components/PropertyCard";
-import PropertyFilters from "@/components/PropertyFilters";
+import PropertyFiltersLogic, { FilterState } from "@/components/PropertyFiltersLogic";
 import { supabase } from "@/integrations/supabase/client";
 
 interface Property {
@@ -20,10 +20,18 @@ interface Property {
 
 const Index = () => {
   const [properties, setProperties] = useState<Property[]>([]);
+  const [filteredProperties, setFilteredProperties] = useState<Property[]>([]);
+  const [favorites, setFavorites] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
+  const [filters, setFilters] = useState<FilterState>({
+    type: "all",
+    beds: "any",
+    priceRange: "any-price",
+    searchQuery: "",
+  });
 
   useEffect(() => {
-    const fetchProperties = async () => {
+    const fetchData = async () => {
       try {
         const { data, error } = await supabase
           .from("properties")
@@ -32,15 +40,79 @@ const Index = () => {
 
         if (error) throw error;
         setProperties(data || []);
+
+        // Fetch favorites
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data: favData } = await supabase
+            .from("favorites")
+            .select("property_id")
+            .eq("user_id", user.id);
+
+          if (favData) {
+            setFavorites(new Set(favData.map(f => f.property_id)));
+          }
+        }
       } catch (error) {
-        console.error("Error fetching properties:", error);
+        console.error("Error fetching data:", error);
       } finally {
         setIsLoading(false);
       }
     };
 
-    fetchProperties();
+    fetchData();
   }, []);
+
+  useEffect(() => {
+    let filtered = [...properties];
+
+    // Filter by type
+    if (filters.type !== "all") {
+      filtered = filtered.filter(p => p.type === filters.type);
+    }
+
+    // Filter by bedrooms
+    if (filters.beds !== "any") {
+      const minBeds = parseInt(filters.beds);
+      filtered = filtered.filter(p => p.beds >= minBeds);
+    }
+
+    // Filter by price range
+    if (filters.priceRange !== "any-price") {
+      const [min, max] = filters.priceRange.split("-").map(p => parseInt(p));
+      filtered = filtered.filter(p => {
+        if (max) {
+          return p.price >= min && p.price <= max;
+        }
+        return p.price >= min;
+      });
+    }
+
+    // Filter by search query
+    if (filters.searchQuery) {
+      const query = filters.searchQuery.toLowerCase();
+      filtered = filtered.filter(p => 
+        p.title.toLowerCase().includes(query) || 
+        p.location.toLowerCase().includes(query)
+      );
+    }
+
+    setFilteredProperties(filtered);
+  }, [properties, filters]);
+
+  const handleFavoriteChange = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const { data: favData } = await supabase
+        .from("favorites")
+        .select("property_id")
+        .eq("user_id", user.id);
+
+      if (favData) {
+        setFavorites(new Set(favData.map(f => f.property_id)));
+      }
+    }
+  };
   return (
     <div className="min-h-screen">
       <Header />
@@ -56,21 +128,24 @@ const Index = () => {
           </p>
         </div>
 
-        <PropertyFilters />
+        <PropertyFiltersLogic filters={filters} onFilterChange={setFilters} />
 
         {isLoading ? (
           <div className="text-center py-16">
             <p className="text-lg text-muted-foreground">Loading properties...</p>
           </div>
-        ) : properties.length === 0 ? (
+        ) : filteredProperties.length === 0 ? (
           <div className="text-center py-16">
-            <p className="text-xl text-muted-foreground">No properties available yet</p>
+            <p className="text-xl text-muted-foreground">
+              {properties.length === 0 ? "No properties available yet" : "No properties match your filters"}
+            </p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {properties.map((property) => (
+            {filteredProperties.map((property) => (
               <PropertyCard
                 key={property.id}
+                id={property.id}
                 image={property.image_url || "/placeholder.svg"}
                 title={property.title}
                 location={property.location}
@@ -80,6 +155,8 @@ const Index = () => {
                 sqft={property.sqft}
                 type={property.type}
                 featured={property.featured}
+                isFavorite={favorites.has(property.id)}
+                onFavoriteChange={handleFavoriteChange}
               />
             ))}
           </div>

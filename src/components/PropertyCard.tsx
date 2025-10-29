@@ -1,9 +1,14 @@
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Heart, Bed, Bath, Maximize } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 interface PropertyCardProps {
+  id: string;
   image: string;
   title: string;
   location: string;
@@ -13,9 +18,12 @@ interface PropertyCardProps {
   sqft: number;
   type: string;
   featured?: boolean;
+  isFavorite?: boolean;
+  onFavoriteChange?: () => void;
 }
 
 const PropertyCard = ({ 
+  id,
   image, 
   title, 
   location, 
@@ -24,10 +32,62 @@ const PropertyCard = ({
   baths, 
   sqft, 
   type,
-  featured = false 
+  featured = false,
+  isFavorite = false,
+  onFavoriteChange
 }: PropertyCardProps) => {
+  const [isTogglingFavorite, setIsTogglingFavorite] = useState(false);
+  const navigate = useNavigate();
+
+  const handleFavoriteToggle = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsTogglingFavorite(true);
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        toast.error("Please sign in to save favorites");
+        navigate("/auth");
+        return;
+      }
+
+      if (isFavorite) {
+        const { error } = await supabase
+          .from("favorites")
+          .delete()
+          .eq("user_id", user.id)
+          .eq("property_id", id);
+
+        if (error) throw error;
+        toast.success("Removed from favorites");
+      } else {
+        const { error } = await supabase
+          .from("favorites")
+          .insert({ user_id: user.id, property_id: id });
+
+        if (error) throw error;
+        toast.success("Added to favorites");
+      }
+
+      onFavoriteChange?.();
+    } catch (error) {
+      console.error("Error toggling favorite:", error);
+      toast.error("Failed to update favorites");
+    } finally {
+      setIsTogglingFavorite(false);
+    }
+  };
+
+  const handleCardClick = () => {
+    navigate(`/property/${id}`);
+  };
+
   return (
-    <Card className="group overflow-hidden border-border hover:shadow-[var(--card-hover-shadow)] transition-all duration-300">
+    <Card 
+      className="group overflow-hidden border-border hover:shadow-[var(--card-hover-shadow)] transition-all duration-300 cursor-pointer"
+      onClick={handleCardClick}
+    >
       <div className="relative overflow-hidden aspect-[4/3]">
         <img 
           src={image} 
@@ -43,8 +103,10 @@ const PropertyCard = ({
           size="icon" 
           variant="secondary"
           className="absolute top-4 right-4 rounded-full bg-white/90 hover:bg-white"
+          onClick={handleFavoriteToggle}
+          disabled={isTogglingFavorite}
         >
-          <Heart className="h-4 w-4" />
+          <Heart className={`h-4 w-4 ${isFavorite ? 'fill-current text-red-500' : ''}`} />
         </Button>
         <Badge className="absolute bottom-4 left-4 bg-primary">
           {type}

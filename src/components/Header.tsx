@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Building2 } from "lucide-react";
+import { Building2, Heart } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { User } from "@supabase/supabase-js";
@@ -39,17 +39,23 @@ const Header = () => {
             Properties
           </a>
           {user && (
-            <a href="/my-properties" className="text-foreground hover:text-primary transition-colors font-medium">
-              My Properties
-            </a>
+            <>
+              <a href="/favorites" className="text-foreground hover:text-primary transition-colors font-medium">
+                Favorites
+              </a>
+              <a href="/my-properties" className="text-foreground hover:text-primary transition-colors font-medium">
+                My Properties
+              </a>
+            </>
           )}
         </nav>
 
         <div className="flex items-center gap-3">
           {user ? (
             <>
-              <Button variant="ghost" onClick={() => navigate("/my-properties")}>
-                My Listings
+              <Button variant="ghost" onClick={() => navigate("/favorites")}>
+                <Heart className="h-4 w-4 mr-2" />
+                Favorites
               </Button>
               <Button variant="outline" onClick={handleSignOut}>
                 Sign Out
